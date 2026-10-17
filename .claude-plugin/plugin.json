@@ -1,0 +1,10 @@
+{
+  "name": "ia-relevo",
+  "version": "0.1.0",
+  "description": "Delega encargos de código en Codex y Antigravity (agy) con un modelo por tarea y relevo automático por cuota, para ahorrar cuota de Claude",
+  "author": {
+    "name": "angelmq152"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

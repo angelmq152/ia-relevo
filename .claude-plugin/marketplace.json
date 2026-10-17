@@ -1,0 +1,13 @@
+{
+  "name": "ia-relevo",
+  "description": "Mod de Claude Code para delegar código en Codex y Antigravity con un modelo por tarea y relevo por cuota",
+  "owner": {
+    "name": "angelmq152"
+  },
+  "plugins": [
+    {
+      "name": "ia-relevo",
+      "source": "./"
+    }
+  ]
+}
