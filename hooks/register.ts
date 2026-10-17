@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
 import type { RelevoLimits, RelevoRun } from '../types'
 import { agyUsage, codexUsage, formatSummary, metaValue, summarize } from './savings'
@@ -7,6 +7,7 @@ import type { RunTally } from './savings'
 import { limitMetrics, quotaHits, runLog, runMetrics } from './telemetry'
 
 const POLL_MS = 5000
+const LIMITS_MS = 60_000
 
 // OTLP/HTTP base URL from the otlpEndpoint option; empty sends nothing.
 let otlpEndpoint = ''
@@ -66,6 +67,12 @@ const reportRun = async ($: EngineInterface, run: RelevoRun, meta: string, exit:
   }
   await sendOtlp($, 'metrics', runMetrics(event, now))
   await sendOtlp($, 'logs', runLog(event, now))
+}
+
+const sendLimits = async ($: EngineInterface, rateLimits: readonly SessionRateLimit[]) => {
+  if (rateLimits.length === 0) return
+  const windows = rateLimits.map(r => ({ window: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt }))
+  await sendOtlp($, 'metrics', limitMetrics(windows, await $.clock.now()))
 }
 
 const refreshStatus = async ($: EngineInterface) => {
@@ -187,6 +194,13 @@ export const register: Register = (on, options) => {
       description: 'Tokens equivalentes de Claude que han hecho Codex y agy (por defecto, últimos 7 días)',
     })
     $.clock.every(POLL_MS, () => void poll($))
+    // Gauges, so they are resent on a timer: a measurement only names
+    // rateLimits as changed when a window moves a whole point.
+    if (otlpEndpoint) {
+      const tick = async () => sendLimits($, (await $.session.usage()).rateLimits)
+      void tick()
+      $.clock.every(LIMITS_MS, () => void tick())
+    }
     await refreshStatus($)
     return started
   })
@@ -253,10 +267,7 @@ export const register: Register = (on, options) => {
       await update($, limits, () => ({ fiveHour: five?.percentUsed, weekly: week?.percentUsed }))
       await refreshStatus($)
     }
-    if (e.changed.includes('rateLimits') && e.rateLimits.length > 0) {
-      const windows = e.rateLimits.map(r => ({ window: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt }))
-      void sendOtlp($, 'metrics', limitMetrics(windows, await $.clock.now()))
-    }
+    if (e.changed.includes('rateLimits')) void sendLimits($, e.rateLimits)
     return next(e)
   })
 
