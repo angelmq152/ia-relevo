@@ -42,6 +42,8 @@ RULES
   "Pending", it is not fixed.
 - Match the style of the file you touch: same comment density, same naming.
 - Read a file whole before editing it. Locate code before assuming.
+- Prefer your own file read, search and edit tools over shell commands; shell
+  commands may be denied in this run.
 - Single verification at the end: one run of the whole process.
 - Do NOT git commit, push, merge, rebase or switch branches. The main session commits.
 - Do not read or print secrets (.env, *.pem, *.key, tokens).
@@ -162,7 +164,8 @@ if denied:
         a.get("display_name", a.get("action", "?")) for a in denied)
 if text:
     open(sys.argv[2], "w").write(text + "\n")
-sys.exit(0 if d.get("status") == "SUCCESS" else 1)
+# A headless agy that hit a denied tool can end "SUCCESS" with no answer at all.
+sys.exit(0 if d.get("status") == "SUCCESS" and d.get("response", "").strip() else 1)
 EOF
   return "$rc"
 }

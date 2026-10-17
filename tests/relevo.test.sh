@@ -28,6 +28,10 @@ EOF
 cat > "$TMP/bin/agy" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" > "$RELEVO_RUNS/.agy-args"
+if [ "${STUB_AGY_DENIED:-0}" = 1 ]; then
+  echo '{"conversation_id":"c-2","status":"SUCCESS","response":"","denied_actions":[{"action":"command","display_name":"RunCommand"}]}'
+  exit 0
+fi
 echo '{"conversation_id":"c-1","status":"SUCCESS","response":"Status: OK","usage":{"input_tokens":100,"output_tokens":5,"thinking_tokens":1,"cache_read_tokens":50}}'
 EOF
 chmod +x "$TMP/bin/codex" "$TMP/bin/agy"
@@ -63,5 +67,10 @@ for _ in $(seq 1 50); do [ -f "$dir/exit" ] && break; sleep 0.1; done
 check "detached run writes exit" "$(cat "$dir/exit" 2>/dev/null)" "0"
 check "detached run used agy flash" "$(grep '^model=' "$dir/meta" | tail -1)" "model=gemini-3.8-flash-medium"
 check "prompt holds the task" "$(tail -1 "$dir/prompt.md")" "detached task"
+
+STUB_AGY_DENIED=1 "$SCRIPT" run -n cuatro -C "$TMP/work" -k read -l facil --ro "look" > /dev/null
+run=$(ls -1d "$RELEVO_RUNS"/*-cuatro)
+check "empty agy answer is a failure" "$(cat "$run/exit")" "1"
+check "denied actions reach the report" "$(grep -c 'RunCommand' "$run/last.md")" "1"
 
 [ "$fails" -eq 0 ] && echo "all relevo.sh tests passed" || { echo "$fails failed"; exit 1; }
