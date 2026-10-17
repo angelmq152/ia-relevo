@@ -30,6 +30,8 @@ En la app de escritorio, donde `/plugin` no funciona, pulsa el + junto al cuadro
 
 Para cambiar qué modelo hace cada tarea, copia `bin/models.conf` a `~/.config/ia-relevo/models.conf` y edítalo. Las filas de cada combinación de tipo y nivel se prueban en orden. Los nombres de modelo dependen de lo que tenga tu cuenta: `agy models` y la caché de modelos de Codex te dicen cuáles hay.
 
+Si tienes un OpenTelemetry Collector, pon su URL base OTLP/HTTP en la opción `otlpEndpoint` del mod (por ejemplo `http://127.0.0.1:4318`, desde `/config` o en `pluginConfigs` de tu `settings.json`). Al terminar cada encargo, el mod enviará `relevo.runs` (con motor, modelo, tipo, nivel, resultado y si hubo relevo), `relevo.run.duration`, `relevo.tokens`, `relevo.claude_equivalent` y `relevo.quota_hits`, y un evento por encargo. También enviará los límites de 5 horas y semanal de tu plan (`relevo.plan.limit` y `relevo.plan.limit.resets_at`), que la telemetría propia de Claude Code no trae. Junto con esa telemetría (`CLAUDE_CODE_ENABLE_TELEMETRY=1`) y la de Codex (sección `[otel]` de `~/.codex/config.toml`), tienes las tres herramientas en el mismo Grafana. Si dejas la opción vacía, el mod no envía nada.
+
 Hay variables de entorno para lo demás: `RELEVO_RUNS` es la carpeta donde se guarda cada ejecución (por defecto `~/.claude/relevo-runs`), `RELEVO_TIMEOUT` es el tiempo máximo por encargo en segundos (3600) y `RELEVO_COOLDOWN` es cuánto tiempo queda en pausa un motor sin cuota (3600).
 
 Antigravity solo ejecuta los comandos de shell que permitas en su propia configuración (`permissions.allow` en `~/.gemini/antigravity-cli/settings.json`). Los que deniega aparecen al final del informe, para que sepas qué regla te falta.

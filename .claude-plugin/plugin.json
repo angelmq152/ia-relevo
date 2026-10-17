@@ -1,10 +1,18 @@
 {
   "name": "ia-relevo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Delega encargos de código en Codex y Antigravity (agy) con un modelo por tarea y relevo automático por cuota, para ahorrar cuota de Claude",
   "author": {
     "name": "angelmq152"
   },
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "otlpEndpoint": {
+      "type": "string",
+      "title": "Endpoint OTLP",
+      "description": "URL base OTLP/HTTP de tu OpenTelemetry Collector (p. ej. http://127.0.0.1:4318) para enviar métricas y eventos de los encargos y de los límites del plan. Vacío no envía nada.",
+      "default": ""
+    }
+  }
 }

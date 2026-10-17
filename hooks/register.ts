@@ -4,8 +4,12 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { RelevoLimits, RelevoRun } from '../types'
 import { agyUsage, codexUsage, formatSummary, metaValue, summarize } from './savings'
 import type { RunTally } from './savings'
+import { limitMetrics, quotaHits, runLog, runMetrics } from './telemetry'
 
 const POLL_MS = 5000
+
+// OTLP/HTTP base URL from the otlpEndpoint option; empty sends nothing.
+let otlpEndpoint = ''
 
 const runs = atom({ plugin: 'ia-relevo', key: 'runs' } as const, [] as RelevoRun[])
 const limits = atom({ plugin: 'ia-relevo', key: 'limits' } as const, {} as RelevoLimits)
@@ -29,6 +33,41 @@ const readOr = async ($: EngineInterface, path: string, fallback = '') => {
   }
 }
 
+const sendOtlp = async ($: EngineInterface, signal: 'metrics' | 'logs', payload: unknown) => {
+  if (!otlpEndpoint) return
+  try {
+    const sent = await $.http.fetch(`${otlpEndpoint}/v1/${signal}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!sent.ok) $.ui.log(`ia-relevo: OTLP ${signal} answered ${sent.status}`, { to: 'debug' })
+  } catch (err) {
+    $.ui.log(`ia-relevo: OTLP ${signal} failed: ${String(err)}`, { to: 'debug' })
+  }
+}
+
+const reportRun = async ($: EngineInterface, run: RelevoRun, meta: string, exit: string) => {
+  if (!otlpEndpoint) return
+  const tally = await tallyRun($, run.dir)
+  const started = Date.parse(metaValue(meta, 'started'))
+  const ended = await $.fs.stat(`${run.dir}/exit`).then(s => s.mtimeMs, () => Date.now())
+  const now = await $.clock.now()
+  const event = {
+    name: run.name,
+    engine: tally?.engine ?? 'none',
+    model: tally?.model ?? 'none',
+    kind: run.kind,
+    level: run.level,
+    isOk: exit.trim() === '0',
+    durationSeconds: Number.isFinite(started) ? Math.max(0, (ended - started) / 1000) : 0,
+    usage: tally?.usage ?? { fresh: 0, cached: 0, output: 0 },
+    quotaHits: quotaHits(await readOr($, `${run.dir}/stderr.log`)),
+  }
+  await sendOtlp($, 'metrics', runMetrics(event, now))
+  await sendOtlp($, 'logs', runLog(event, now))
+}
+
 const refreshStatus = async ($: EngineInterface) => {
   const running = (await read($, runs)).filter(r => !r.isDone).length
   const l = await read($, limits)
@@ -50,6 +89,7 @@ const finishRun = async ($: EngineInterface, run: RelevoRun) => {
   const model = metaValue(meta, 'model') || '?'
   const body = report.trim() || (await readOr($, `${run.dir}/stderr.log`)).trim().split('\n').slice(-15).join('\n')
   $.ui.toast(`ia-relevo: «${run.name}» terminado con ${engine}`)
+  void reportRun($, run, meta, exit)
   void $.prompt.submit({
     text: [
       `[ia-relevo] The delegated task "${run.name}" finished: engine ${engine}, model ${model}, exit ${exit.trim()}.`,
@@ -98,7 +138,9 @@ const savingsReport = async ($: EngineInterface, days: number) => {
   return formatSummary(summarize(tallies), since.toISOString().slice(0, 10))
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  otlpEndpoint = typeof options.otlpEndpoint === 'string' ? options.otlpEndpoint.replace(/\/+$/, '') : ''
+
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.tool.register({
@@ -210,6 +252,10 @@ export const register: Register = on => {
     if (five || week) {
       await update($, limits, () => ({ fiveHour: five?.percentUsed, weekly: week?.percentUsed }))
       await refreshStatus($)
+    }
+    if (e.changed.includes('rateLimits') && e.rateLimits.length > 0) {
+      const windows = e.rateLimits.map(r => ({ window: r.kind, percentUsed: r.percentUsed, resetsAt: r.resetsAt }))
+      void sendOtlp($, 'metrics', limitMetrics(windows, await $.clock.now()))
     }
     return next(e)
   })

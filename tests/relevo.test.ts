@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { agyUsage, claudeEquivalent, codexUsage, formatSummary, metaValue, summarize } from '../hooks/savings'
+import { limitMetrics, quotaHits, runLog, runMetrics } from '../hooks/telemetry'
 
 test('codex usage sums every turn and splits cached input', () => {
   const events = [
@@ -68,4 +69,39 @@ test('delegar starts the script with the table options and the brief on stdin', 
   ])
   expect(start?.stdin).toBe('Fix the login bug')
   expect(String(ran.result)).toContain('Run dir: /runs/20261017-120000-arreglar-login')
+})
+
+const run = {
+  name: 'login',
+  engine: 'agy',
+  model: 'claude-opus-5-5-high',
+  kind: 'back',
+  level: 'dificil',
+  isOk: true,
+  durationSeconds: 42,
+  usage: { fresh: 1000, cached: 10_000, output: 100 },
+  quotaHits: ['codex'],
+}
+
+test('run metrics carry engine, model and status as delta sums', () => {
+  const metrics = runMetrics(run, 1_700_000_000_000).resourceMetrics[0]!.scopeMetrics[0]!.metrics
+  const byName = Object.fromEntries(metrics.map(m => [m.name, m]))
+  const runs = byName['relevo.runs'] as { sum: { aggregationTemporality: number; dataPoints: { attributes: { key: string; value: { stringValue: string } }[]; asDouble: number }[] } }
+  expect(runs.sum.aggregationTemporality).toBe(1)
+  const labels = Object.fromEntries(runs.sum.dataPoints[0]!.attributes.map(a => [a.key, a.value.stringValue]))
+  expect(labels).toEqual({ engine: 'agy', model: 'claude-opus-5-5-high', kind: 'back', level: 'dificil', status: 'ok', relayed: 'true' })
+  expect((byName['relevo.claude_equivalent'] as { sum: { dataPoints: { asDouble: number }[] } }).sum.dataPoints[0]!.asDouble).toBe(2750)
+  expect(Object.keys(byName)).toContain('relevo.quota_hits')
+})
+
+test('limit metrics keep the window and its reset time', () => {
+  const metrics = limitMetrics([{ window: 'five_hour', percentUsed: 23.5, resetsAt: '2026-10-18T01:40:00Z' }], 0)
+    .resourceMetrics[0]!.scopeMetrics[0]!.metrics
+  expect(metrics.map(m => m.name)).toEqual(['relevo.plan.limit', 'relevo.plan.limit.resets_at'])
+  expect((metrics[1] as { gauge: { dataPoints: { asDouble: number }[] } }).gauge.dataPoints[0]!.asDouble).toBe(Date.parse('2026-10-18T01:40:00Z') / 1000)
+})
+
+test('quota hits come from the stderr log', () => {
+  expect(quotaHits('x\nrelevo: codex out of quota or not logged in (exit=1)\nrelevo: agy out of quota\n')).toEqual(['codex', 'agy'])
+  expect(runLog(run, 0).resourceLogs[0]!.scopeLogs[0]!.logRecords[0]!.body.stringValue).toBe('login: agy claude-opus-5-5-high ok in 42s')
 })
